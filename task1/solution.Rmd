@@ -94,7 +94,8 @@ dat$test_label <- dat$raw %>% filter(DATA_TYPE != "TRAIN") %>%
   select(POLICY_IS_RENEWED, -POLICY_INTERMEDIARY, -DATA_TYPE)
 
 # Missing value impute
-imputDate <- c("POLICY_YEARS_RENEWED_N", "VEHICLE_SUM_INSURED", "POLICY_DEDUCT_VALUE")
+imputDate <- c("VEHICLE_ENGINE_POWER","POLICY_YEARS_RENEWED_N", 
+               "VEHICLE_SUM_INSURED", "POLICY_DEDUCT_VALUE")
 pr_model <- preProcess(dat$train_data[,imputDate], method = "medianImpute" )
 dat$train_data[,imputDate] <- predict(pr_model, dat$train_data[,imputDate])
 ```
