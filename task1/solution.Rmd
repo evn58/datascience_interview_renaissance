@@ -128,6 +128,8 @@ roc1 <- rxRoc(actualVarName = "POLICY_IS_RENEWED", predVarNames = "Probability.1
 plot(roc1)
 ```
 
+!["rxLogisticRegression"](/images/lm.png)
+
 ### Обучим случайный лес
 
 ```{r, message=FALSE, warning=FALSE, echo=TRUE, collapse=TRUE, results='hide'}
@@ -143,6 +145,8 @@ scoreDF$POLICY_IS_RENEWED <- as.numeric( as.character( scoreDF$POLICY_IS_RENEWED
 roc1 <- rxRoc(actualVarName = "POLICY_IS_RENEWED", predVarNames = "Probability.1", data = scoreDF) 
 plot(roc1)
 ```
+
+!["rxFastForest"](/images/rf.png)
 
 ## Предикт для тестовой выборки
 
