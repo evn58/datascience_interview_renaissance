@@ -1,0 +1,178 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+```{r}
+library(tidyverse)
+library(caret)
+library(caretEnsemble)
+library(xgboost)
+library(readr)
+library(MicrosoftML)
+library(lubridate)
+
+dat <- list(
+  #col_double(), col_character()
+  raw = read_delim(
+    "data.txt", 
+    delim = ";", 
+    col_types = list(
+      col_factor(levels = NULL), # DATA_TYPE
+      col_integer(), # POLICY_ID
+      col_integer(),  # POLICY_BEGIN_MONTH
+      col_integer(),  # POLICY_END_MONTH
+      #col_factor(levels = c(0,1)), # POLICY_IS_RENEWED
+      col_number(), # POLICY_IS_RENEWED
+      col_integer(),  # POLICY_SALES_CHANNEL
+      col_integer(),  # POLICY_SALES_CHANNEL_GROUP
+      col_character(), # POLICY_BRANCH -- NEED PREPROC
+      col_integer(),# POLICY_MIN_AGE
+      col_integer(), #POLICY_MIN_DRIVING_EXPERIENCE need preprocess
+      col_character(), # VEHICLE_MAKE
+      col_character(), # VEHICLE_MODEL
+      col_integer(), # VEHICLE_ENGINE_POWER
+      col_integer(), #VEHICLE_IN_CREDIT
+      col_integer(), # VEHICLE_SUM_INSURED
+      col_character(), #POLICY_INTERMEDIARY Maybe not needed
+      col_character(), # INSURER_GENDER -- NEED PREPROC
+      col_character(), # POLICY_CLM_N     -- NEED PREPROC
+      col_character(), # POLICY_CLM_GLT_N -- NEED PREPROC
+      col_character(), # POLICY_PRV_CLM_N -- NEED PREPROC
+      col_character(), # POLICY_PRV_CLM_GLT_N -- NEED PREPROC
+      col_integer(), # CLIENT_HAS_DAGO
+      col_integer(), # CLIENT_HAS_OSAGO
+      col_integer(), # POLICY_COURT_SIGN
+      col_double(), #CLAIM_AVG_ACC_ST_PRD
+      col_integer(), # POLICY_HAS_COMPLAINTS
+      col_integer(), # POLICY_YEARS_RENEWED_N
+      col_integer(), # POLICY_DEDUCT_VALUE
+      col_character(), # CLIENT_REGISTRATION_REGION -- NEED PREPROC
+      col_double() # POLICY_PRICE_CHANGE
+    )
+  ),
+  train_label = NA,
+  test_label = NA,
+  train_data = NA,
+  test_data = NA
+)
+
+dat$raw <- dat$raw %>% 
+  dplyr::select( -DATA_TYPE, -POLICY_IS_RENEWED, -VEHICLE_MAKE, -VEHICLE_MODEL,
+          -POLICY_INTERMEDIARY, -POLICY_CLM_N, -POLICY_CLM_GLT_N, -POLICY_PRV_CLM_N, 
+          -POLICY_PRV_CLM_N, -CLIENT_REGISTRATION_REGION, -POLICY_ID, -POLICY_PRV_CLM_GLT_N)
+
+dat$raw$POLICY_BRANCH <- as.integer(ifelse(dat$raw$POLICY_BRANCH == "Москва", 1, 0))
+
+dat$raw$INSURER_GENDER <- as.integer(ifelse(dat$raw$INSURER_GENDER == "M", 1, 0))
+
+# Clear POLICY_MIN_DRIVING_EXPERIENCE
+dat$raw$POLICY_MIN_DRIVING_EXPERIENCE <- ifelse(
+  dat$raw$POLICY_MIN_DRIVING_EXPERIENCE > 1000, 
+  year(Sys.Date()) - dat$raw$POLICY_MIN_DRIVING_EXPERIENCE, dat$raw$POLICY_MIN_DRIVING_EXPERIENCE
+)
+
+#dat$train_data <- dat$raw %>% filter(DATA_TYPE == "TRAIN") %>% 
+#  select(-POLICY_INTERMEDIARY, -DATA_TYPE)
+
+#dat$test_data <- dat$raw %>% filter(DATA_TYPE != "TRAIN") %>% 
+#  select(-POLICY_INTERMEDIARY, -DATA_TYPE)
+
+# Balanced data
+#balanceLength <- abs(diff(table(dat$train_data$POLICY_IS_RENEWED)))
+#indexes <- which( dat$train_data$POLICY_IS_RENEWED == 0)
+#dat$train_data <- rbind(dat$train_data, dat$train_data[sample(indexes, balanceLength, replace = T),])
+#
+#dat$train_label <- dat$raw %>% filter(DATA_TYPE == "TRAIN") %>% 
+#  select(POLICY_IS_RENEWED, -POLICY_INTERMEDIARY, -DATA_TYPE)
+
+#dat$test_label <- dat$raw %>% filter(DATA_TYPE != "TRAIN") %>% 
+#  select(POLICY_IS_RENEWED, -POLICY_INTERMEDIARY, -DATA_TYPE)
+
+# Missing value impute
+imputDate <- c("POLICY_YEARS_RENEWED_N", "VEHICLE_SUM_INSURED", "POLICY_DEDUCT_VALUE")
+pr_model <- preProcess(dat$raw[,imputDate], method = "medianImpute" )
+dat$raw[,imputDate] <- predict(pr_model, dat$raw[,imputDate])
+dat$raw <- na.omit(dat$raw)
+
+pr_model <- preProcess(dat$raw, method = c("center","scale","pca"))
+full_df <- predict(pr_model, dat$raw)
+```
+
+## Начальное построение кластеров
+
+```{r}
+clus <- kmeans(full_df,centers = 3)
+
+df_pca$cluster <- clus$cluster
+library('ggplot2'); library('grDevices')
+h <- do.call(rbind, lapply(unique(clus$cluster),
+function(c) { f <- subset(df_pca,cluster == c); f[chull(f),]}))
+ggplot() + geom_text(data = df_pca, aes(label = cluster, x = PC1, y = PC2,
+ color = cluster), size = 3) +
+ geom_polygon(data = h, aes(x = PC1, y = PC2, group = cluster,
+ fill = as.factor(cluster)), alpha = 0.15, linetype = 0) +
+ theme(legend.position = "none") + ggtitle("PCA Clusters")
+```
+
+## Поиск оптимального колличества кластеров. Метод локтя
+
+```{r}
+df_sub <- full_df[sample(nrow(full_df), nrow(full_df) / 30),]
+
+k.max <- 15 # максимальное число кластеров
+wss <- sapply(1:k.max, function(k)
+{kmeans(df_sub, k, nstart = 10 )$tot.withinss})
+plot(1:k.max, wss, type = "b", pch = 19, frame = FALSE,
+     xlab = "Число кластеров K",
+     ylab = "Общая внутригрупповая сумма квадратов")
+# Формируем график с помощью fviz_nbclust()
+library(factoextra)
+fviz_nbclust(df_sub, kmeans, method = "wss") +
+geom_vline(xintercept = 4, linetype = 2)
+```
+## Поиск оптимального колличества кластеров метод GAP-статистики
+
+```{r}
+library(cluster)
+set.seed(123)
+gap_stat <- clusGap(df_sub, FUN = kmeans, K.max = 10, B = 10)
+# Печать и визуализация результатов
+print(gap_stat, method = "firstmax")
+fviz_gap_stat(gap_stat)
+```
+
+## Метод PAM
+
+```{r}
+set.seed(123)
+gap_stat <- clusGap(df_sub, FUN = pam, K.max = 7, B = 10)
+print(gap_stat, method = "firstmax")
+(k.pam <- pam(df_sub, k = 4))
+fviz_silhouette(silhouette(k.pam))
+fviz_nbclust(df.stand, pam, method = "silhouette")
+```
+
+```{r}
+#clust <- hclust(dist(df_sub), method = "complete")
+
+res.hc <- hclust(dist(df_sub), method = "complete" )
+grp <- cutree(res.hc, k = 4) # Разрезание дерева на 4 группы
+plot(res.hc, cex = 0.7)
+rect.hclust(res.hc, k = 4, border = 2:5)
+
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
