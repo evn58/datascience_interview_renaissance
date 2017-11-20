@@ -128,7 +128,7 @@ roc1 <- rxRoc(actualVarName = "POLICY_IS_RENEWED", predVarNames = "Probability.1
 plot(roc1)
 ```
 
-!["rxLogisticRegression"](/images/lm.png)
+!["rxLogisticRegression"](images/lm.png)
 
 ### Обучим случайный лес
 
@@ -146,7 +146,7 @@ roc1 <- rxRoc(actualVarName = "POLICY_IS_RENEWED", predVarNames = "Probability.1
 plot(roc1)
 ```
 
-!["rxFastForest"](/images/rf.png)
+!["rxFastForest"](images/rf.png)
 
 ## Предикт для тестовой выборки
 
