@@ -81,6 +81,7 @@ dat$raw <- dat$raw %>% dplyr::select(-POLICY_ID, -POLICY_IS_RENEWED, -DATA_TYPE)
 imputDate <- c("VEHICLE_ENGINE_POWER","POLICY_YEARS_RENEWED_N", 
                "VEHICLE_SUM_INSURED", "POLICY_DEDUCT_VALUE")
 
+
 pr_model_median <- preProcess(dat$raw[,imputDate], method = "medianImpute" )
 dat$raw[,imputDate] <- predict(pr_model_median, dat$raw[,imputDate])
 
@@ -168,12 +169,14 @@ clusters <- dat$raw_clusters$cluster
 !["clust"](images/features.png)
 
 ## Выводы:
-* POLICY_PRICE_CHANGE : Для кластера 1 страховая премия которую страхователь обязан выплатит стаховщику выше чем для других кластеров. Предпочителен для страхования
-* CLAIM_AVG_ACC_ST_PRD : Среднее время от страхового случая до заявления убытков по данному полису в кластере 1 выше чем в других кластеров, Предпочителен для страхования (инфляция и депозит сделает свое дело)
-* VEHICLE_SUM_INSURED : Страховая сумма по полису для 1 кластера имеет имеет самое высокое медианное значение. Снизить риски, увеличить стоимость полиса
-* POLICY_DEDUCT_VALUE : Медианная сумма франшизы самая низкая для 1 кластера. Предпочителен для страхования.
+* POLICY_PRICE_CHANGE : Для кластера 1 страховая премия которую страхователь обязан выплатит стаховщику выше чем для других кластеров. Не предпочтителен для страхования
+* CLAIM_AVG_ACC_ST_PRD : Среднее время от страхового случая до заявления убытков по данному полису в кластере 1 выше чем в других кластеров. Скорее всего означает что данный страховщик будет судится в случае страхового случая, не предпочителен для страхования
+* VEHICLE_SUM_INSURED : Страховая сумма по полису для 1 кластера имеет имеет самое высокое медианное значение. Не предпочтительный страховщик
+* POLICY_DEDUCT_VALUE : Медианная сумма франшизы самая низкая для 1 кластера. Следствие из других выводов
 
-Резюме: Страхователь из первого кластера наиболее предпочителен для страхования. Посмотрим на характиристики этого страхователя
+Резюме: Страхователь из первого кластера самый дорогой для страхования, и как следуют самый не желательный страхователь. Посмотрим на характиристики этого страхователя, ( Мужчина ~40 лет, полис приобретен в московском филиале, стаж вождения ~15 лет, автомобиль ~ 150 h/p, автомобиль не в кредите, с оценочной стоимостью авто ~ 1 млн рублей,)
+
+Наиболее привлекательный для страхования имеет следующие характиристики. Мужчина 35 лет, оценочная стоимость авто не превышает 500 т.р
 
 ```{r}
 dat <- list(
@@ -235,26 +238,25 @@ dat$raw[,imputDate] <- predict(pr_model_median, dat$raw[,imputDate])
 
 dat$dat_test <- cbind(dat$raw, clusters)
 
-dat$dat_test <- dat$dat_test %>% filter(clusters == 1)
+dat$dat_test <- dat$dat_test %>% filter(clusters == 2)
 ```
 
-## Идентификация идеального клиента
+## Идентификация нежелательного клиента
 
 ```{r}
 options(scipen = 999)
-  qplot(dat$dat_test$POLICY_MIN_AGE, main = "Средний возраст ~ 35-40 лет",xlab = "age", bins = 30)
-  qplot(dat$dat_test$POLICY_SALES_CHANNEL, main = "Канал продаж 50,52, 53, 54, 55")
-  qplot(dat$dat_test$POLICY_SALES_CHANNEL_GROUP, main = "Группа канал продаж 6")
-  qplot(dat$dat_test$POLICY_BRANCH, main = "Город Москва")
-  qplot(dat$dat_test$POLICY_MIN_DRIVING_EXPERIENCE, main = "Минимальный стаж вождения ~ 10 лет")
-  qplot(dat$dat_test$VEHICLE_ENGINE_POWER, bins = 80, xlim = c(50,300), main = "Автомобиль ~ 150 h/p")
-  qplot(dat$dat_test$VEHICLE_IN_CREDIT, main = "Автомобиль не в кредите")
-  qplot(dat$dat_test$VEHICLE_SUM_INSURED, xlim = c(100000, 2500000), bins = 30, main = "Оценочная стоимость ТС - лимит возмещения ~ 1 млн" )
-  qplot(dat$dat_test$INSURER_GENDER, main = "Водитель мужчина")
-  qplot(dat$dat_test$CLIENT_HAS_DAGO, main = "Клиент без полиса ДАГО")
-  qplot(dat$dat_test$POLICY_COURT_SIGN, main = "Кол-во убытков, всего по предыдущему полису отсуствуют")
-  qplot(dat$dat_test$POLICY_HAS_COMPLAINTS, main = "По полису не было жалоб")
-  qplot(dat$dat_test$POLICY_YEARS_RENEWED_N, main = "Новый клиент предпочтительнее")
+  qplot(dat$dat_test$POLICY_MIN_AGE, main = "Средний возраст",xlab = "age", bins = 30)
+  qplot(dat$dat_test$POLICY_SALES_CHANNEL, main = "Канал продаж")
+  qplot(dat$dat_test$POLICY_SALES_CHANNEL_GROUP, main = "Группа канал продаж")
+  qplot(dat$dat_test$POLICY_BRANCH, main = "Город")
+  qplot(dat$dat_test$POLICY_MIN_DRIVING_EXPERIENCE, main = "Минимальный стаж вождения")
+  qplot(dat$dat_test$VEHICLE_ENGINE_POWER, bins = 80, xlim = c(50,300), main = "Автомобиль")
+  qplot(dat$dat_test$VEHICLE_IN_CREDIT, main = "Автомобиль в кредите")
+  qplot(dat$dat_test$VEHICLE_SUM_INSURED, xlim = c(100000, 2500000), bins = 30, main = "Оценочная стоимость ТС" )
+  qplot(dat$dat_test$INSURER_GENDER, main = "Пол водителя")
+  qplot(dat$dat_test$POLICY_COURT_SIGN, main = "Кол-во убытков, всего по предыдущему полису")
+  qplot(dat$dat_test$POLICY_HAS_COMPLAINTS, main = "Жалобы по полису")
+  qplot(dat$dat_test$POLICY_YEARS_RENEWED_N, main = "Колличество лет пролонгации")
 ```
 
 !["p1"](images/p1.png)
