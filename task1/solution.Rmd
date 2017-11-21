@@ -77,10 +77,10 @@ dat$raw$POLICY_MIN_DRIVING_EXPERIENCE <- ifelse(
 )
 
 dat$train_data <- dat$raw %>% filter(DATA_TYPE == "TRAIN") %>% 
-  select(-POLICY_INTERMEDIARY, -DATA_TYPE)
+  dplyr::select(-POLICY_INTERMEDIARY, -DATA_TYPE)
 
 dat$test_data <- dat$raw %>% filter(DATA_TYPE != "TRAIN") %>% 
-  select(-POLICY_INTERMEDIARY, -DATA_TYPE)
+  dplyr::select(-POLICY_INTERMEDIARY, -DATA_TYPE)
 
 # Balanced data
 balanceLength <- abs(diff(table(dat$train_data$POLICY_IS_RENEWED)))
@@ -88,10 +88,10 @@ indexes <- which( dat$train_data$POLICY_IS_RENEWED == 0)
 dat$train_data <- rbind(dat$train_data, dat$train_data[sample(indexes, balanceLength, replace = T),])
 
 dat$train_label <- dat$raw %>% filter(DATA_TYPE == "TRAIN") %>% 
-  select(POLICY_IS_RENEWED, -POLICY_INTERMEDIARY, -DATA_TYPE)
+  dplyr::select(POLICY_IS_RENEWED, -POLICY_INTERMEDIARY, -DATA_TYPE)
 
 dat$test_label <- dat$raw %>% filter(DATA_TYPE != "TRAIN") %>% 
-  select(POLICY_IS_RENEWED, -POLICY_INTERMEDIARY, -DATA_TYPE)
+  dplyr::select(POLICY_IS_RENEWED, -POLICY_INTERMEDIARY, -DATA_TYPE)
 
 # Missing value impute
 imputDate <- c("VEHICLE_ENGINE_POWER","POLICY_YEARS_RENEWED_N", 

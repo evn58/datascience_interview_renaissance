@@ -51,14 +51,11 @@ dat <- list(
       col_double() # POLICY_PRICE_CHANGE
     )
   ),
-  train_label = NA,
-  test_label = NA,
-  train_data = NA,
-  test_data = NA
+  raw_clusters = NA
 )
 
-dat$raw <- dat$raw %>% 
-  dplyr::select( -DATA_TYPE, -POLICY_IS_RENEWED, -POLICY_ID, -POLICY_PRV_CLM_GLT_N)
+#dat$raw <- dat$raw %>% 
+#  dplyr::select( -DATA_TYPE, -POLICY_IS_RENEWED)
 
 # factor to numeric
 dat$raw$CLIENT_REGISTRATION_REGION <- as.numeric(as.factor(dat$raw$CLIENT_REGISTRATION_REGION))
@@ -70,6 +67,7 @@ dat$raw$POLICY_CLM_GLT_N <- as.numeric(as.factor(dat$raw$POLICY_CLM_GLT_N))
 dat$raw$POLICY_PRV_CLM_N <- as.numeric(as.factor(dat$raw$POLICY_PRV_CLM_N))
 dat$raw$POLICY_BRANCH <- as.numeric(as.factor(dat$raw$POLICY_BRANCH))
 dat$raw$INSURER_GENDER <- as.numeric(as.factor(dat$raw$INSURER_GENDER))
+dat$raw$POLICY_PRV_CLM_GLT_N <- as.numeric(as.factor(dat$raw$POLICY_PRV_CLM_GLT_N))
 
 # Clear POLICY_MIN_DRIVING_EXPERIENCE
 dat$raw$POLICY_MIN_DRIVING_EXPERIENCE <- ifelse(
@@ -77,35 +75,20 @@ dat$raw$POLICY_MIN_DRIVING_EXPERIENCE <- ifelse(
   year(Sys.Date()) - dat$raw$POLICY_MIN_DRIVING_EXPERIENCE, dat$raw$POLICY_MIN_DRIVING_EXPERIENCE
 )
 
+dat$raw <- dat$raw %>% dplyr::select(-POLICY_ID, -POLICY_IS_RENEWED, -DATA_TYPE)
+
 # Missing value impute 
 imputDate <- c("VEHICLE_ENGINE_POWER","POLICY_YEARS_RENEWED_N", 
                "VEHICLE_SUM_INSURED", "POLICY_DEDUCT_VALUE")
 
-pr_model <- preProcess(dat$raw[,imputDate], method = "medianImpute" )
-dat$raw[,imputDate] <- predict(pr_model, dat$raw[,imputDate])
-dat$raw <- na.omit(dat$raw)
+pr_model_median <- preProcess(dat$raw[,imputDate], method = "medianImpute" )
+dat$raw[,imputDate] <- predict(pr_model_median, dat$raw[,imputDate])
 
-pr_model <- preProcess(dat$raw, method = c("center","scale","pca"), pcaComp = 2)
-full_df <- predict(pr_model, dat$raw)
+pr_model_pca <- preProcess(dat$raw, method = c("center","scale","pca"), pcaComp = 2)
+full_df <- predict(pr_model_pca, dat$raw)
 ```
 
-## Построение кластеров
-
-```{r, message=FALSE, warning=FALSE, echo=TRUE, collapse=TRUE, results='hide'}
-clus <- kmeans(full_df,centers = 4)
-
-df_pca$cluster <- clus$cluster
-library('ggplot2'); library('grDevices')
-h <- do.call(rbind, lapply(unique(clus$cluster),
-function(c) { f <- subset(df_pca,cluster == c); f[chull(f),]}))
-ggplot() + geom_text(data = df_pca, aes(label = cluster, x = PC1, y = PC2,
- color = cluster), size = 1) +
- geom_polygon(data = h, aes(x = PC1, y = PC2, group = cluster,
- fill = as.factor(cluster)), alpha = 0.2, linetype = 0) +
- theme(legend.position = "none") + ggtitle("PCA Clusters")
-```
-
-## Поиск оптимального колличества кластеров. Метод локтя
+### Поиск оптимального колличества кластеров. Метод локтя
 
 ```{r, message=FALSE, warning=FALSE, echo=TRUE, collapse=TRUE, results='hide'}
 df_sub <- full_df[sample(nrow(full_df), nrow(full_df) / 30),]
@@ -121,7 +104,10 @@ library(factoextra)
 fviz_nbclust(df_sub, kmeans, method = "wss") +
 geom_vline(xintercept = 4, linetype = 2)
 ```
-## Поиск оптимального колличества кластеров метод GAP-статистики
+
+!["clust1"](images/opt_clust.png)
+
+### Поиск оптимального колличества кластеров метод GAP-статистики
 
 ```{r, message=FALSE, warning=FALSE, echo=TRUE, collapse=TRUE, results='hide'}
 library(cluster)
@@ -132,7 +118,9 @@ print(gap_stat, method = "firstmax")
 fviz_gap_stat(gap_stat)
 ```
 
-## Иерархическая кластеризация
+!["clust2"](images/opt_clust2.png)
+
+### Иерархическая кластеризация
 
 ```{r, message=FALSE, warning=FALSE, echo=TRUE, collapse=TRUE, results='hide'}
 res.hc <- hclust(dist(df_sub), method = "complete" )
@@ -141,9 +129,51 @@ plot(res.hc, cex = 0.7)
 rect.hclust(res.hc, k = 4, border = 2:5)
 ```
 
-## Построение выводов 
+!["clust3"](images/opt_clust3.png)
+
+В результате, по предыдущим методам можно сделать вывод что в данных 3-4 кластера, 2 из 3 анализа показывают что три кластера наиболее релевантное значение, изобразим эти кластеры на плоскости
+
+### Построение кластеров
 
 ```{r, message=FALSE, warning=FALSE, echo=TRUE, collapse=TRUE, results='hide'}
+clus <- kmeans(full_df,centers = 3)
+
+full_df$cluster <- clus$cluster
+library('ggplot2'); library('grDevices')
+h <- do.call(rbind, lapply(unique(clus$cluster),
+function(c) { f <- subset(full_df,cluster == c); f[chull(f),]}))
+ggplot() + geom_text(data = full_df, aes(label = cluster, x = PC1, y = PC2,
+ color = cluster), size = 1) +
+ geom_polygon(data = h, aes(x = PC1, y = PC2, group = cluster,
+ fill = as.factor(cluster)), alpha = 0.2, linetype = 0) +
+ theme(legend.position = "none") + ggtitle("PCA Clusters")
+```
+
+## Построение выводов 
+
+```{r}
+dat$raw_clusters <- cbind(dat$raw, clus$cluster)
+names(dat$raw_clusters)[ncol(dat$raw_clusters)] <- "cluster"
+
+dat$raw_clusters <- dat$raw_clusters %>% 
+  dplyr::select(VEHICLE_SUM_INSURED, POLICY_DEDUCT_VALUE, POLICY_PRICE_CHANGE, CLAIM_AVG_ACC_ST_PRD, cluster)
+
+featurePlot(dat$raw_clusters[, -which(names(dat$raw_clusters) == 'cluster')], dat$raw_clusters$cluster)
+
+clusters <- dat$raw_clusters$cluster
+```
+
+!["clust"](images/clust.png)
+
+## Выводы:
+* POLICY_PRICE_CHANGE : Для кластера 1 страховая премия которую страхователь обязан выплатит стаховщику выше чем для других кластеров. Предпочителен для страхования
+* CLAIM_AVG_ACC_ST_PRD : Среднее время от страхового случая до заявления убытков по данному полису в кластере 1 выше чем в других кластеров, Предпочителен для страхования (инфляция и депозит сделает свое дело)
+* VEHICLE_SUM_INSURED : Страховая сумма по полису для 1 кластера имеет очень тяжелые хвосты скорее всего это владельцы премиум авто. Снизить риски, увеличить стоимость полиса
+* POLICY_DEDUCT_VALUE : Медианная сумма франшизы самая низкая для 1 кластера. Предпочителен для страхования.
+
+Резюме: Страхователь из первого кластера наиболее предпочителен для страхования. Посмотрим на характиристики этого страхователя
+
+```{r}
 dat <- list(
   #col_double(), col_character()
   raw = read_delim(
@@ -183,13 +213,8 @@ dat <- list(
       col_double() # POLICY_PRICE_CHANGE
     )
   ),
-  train_label = NA,
-  test_label = NA,
-  train_data = NA,
-  test_data = NA
+  dat_test = NA
 )
-
-#ifelse(dat$raw$POLICY_IS_RENEWED == 1 , 0, 1)
 
 # Clear POLICY_MIN_DRIVING_EXPERIENCE
 dat$raw$POLICY_MIN_DRIVING_EXPERIENCE <- ifelse(
@@ -197,38 +222,51 @@ dat$raw$POLICY_MIN_DRIVING_EXPERIENCE <- ifelse(
   year(Sys.Date()) - dat$raw$POLICY_MIN_DRIVING_EXPERIENCE, dat$raw$POLICY_MIN_DRIVING_EXPERIENCE
 )
 
-dat$train_data <- dat$raw %>% filter(DATA_TYPE == "TRAIN") %>% 
-  dplyr::select(-POLICY_INTERMEDIARY, -DATA_TYPE)
+dat$raw <- dat$raw %>% dplyr::select(-POLICY_ID, -POLICY_IS_RENEWED, -DATA_TYPE)
 
-dat$test_data <- dat$raw %>% filter(DATA_TYPE != "TRAIN") %>% 
-  dplyr::select(-POLICY_INTERMEDIARY, -DATA_TYPE)
+# Missing value impute 
+imputDate <- c("VEHICLE_ENGINE_POWER","POLICY_YEARS_RENEWED_N", 
+               "VEHICLE_SUM_INSURED", "POLICY_DEDUCT_VALUE")
 
-# Balanced data
-balanceLength <- abs(diff(table(dat$train_data$POLICY_IS_RENEWED)))
-indexes <- which( dat$train_data$POLICY_IS_RENEWED == 0)
-dat$train_data <- rbind(dat$train_data, dat$train_data[sample(indexes, balanceLength, replace = T),])
+pr_model_median <- preProcess(dat$raw[,imputDate], method = "medianImpute" )
+dat$raw[,imputDate] <- predict(pr_model_median, dat$raw[,imputDate])
 
-dat$train_label <- dat$raw %>% filter(DATA_TYPE == "TRAIN") %>% 
-  dplyr::select(POLICY_IS_RENEWED, -POLICY_INTERMEDIARY, -DATA_TYPE)
+dat$dat_test <- cbind(dat$raw, clusters)
 
-dat$test_label <- dat$raw %>% filter(DATA_TYPE != "TRAIN") %>% 
-  dplyr::select(POLICY_IS_RENEWED, -POLICY_INTERMEDIARY, -DATA_TYPE)
-
-# Missing value impute
-imputDate <- c("POLICY_YEARS_RENEWED_N", "VEHICLE_SUM_INSURED", "POLICY_DEDUCT_VALUE")
-pr_model <- preProcess(dat$train_data[,imputDate], method = "medianImpute" )
-dat$train_data[,imputDate] <- predict(pr_model, dat$train_data[,imputDate])
-
+dat$dat_test <- dat$dat_test %>% filter(clusters == 1)
 ```
 
+!["clust"](images/features.png)
 
+## Идентификация идеального клиента
 
+```{r}
+options(scipen = 999)
+  qplot(dat$dat_test$POLICY_MIN_AGE, main = "Средний возраст ~ 35-40 лет",xlab = "age", bins = 30)
+  qplot(dat$dat_test$POLICY_SALES_CHANNEL, main = "Канал продаж 50,52, 53, 54, 55")
+  qplot(dat$dat_test$POLICY_SALES_CHANNEL_GROUP, main = "Группа канал продаж 6")
+  qplot(dat$dat_test$POLICY_BRANCH, main = "Город Москва")
+  qplot(dat$dat_test$POLICY_MIN_DRIVING_EXPERIENCE, main = "Минимальный стаж вождения ~ 10 лет")
+  qplot(dat$dat_test$VEHICLE_ENGINE_POWER, bins = 80, xlim = c(50,300), main = "Автомобиль ~ 150 h/p")
+  qplot(dat$dat_test$VEHICLE_IN_CREDIT, main = "Автомобиль не в кредите")
+  qplot(dat$dat_test$VEHICLE_SUM_INSURED, xlim = c(100000, 2500000), bins = 30, main = "Оценочная стоимость ТС - лимит возмещения ~ 1 млн" )
+  qplot(dat$dat_test$INSURER_GENDER, main = "Водитель мужчина")
+  qplot(dat$dat_test$CLIENT_HAS_DAGO, main = "Клиент без полиса ДАГО")
+  qplot(dat$dat_test$POLICY_COURT_SIGN, main = "Кол-во убытков, всего по предыдущему полису отсуствуют")
+  qplot(dat$dat_test$POLICY_HAS_COMPLAINTS, main = "По полису не было жалоб")
+  qplot(dat$dat_test$POLICY_YEARS_RENEWED_N, main = "Новый клиент предпочтительнее")
+```
 
-
-
-
-
-
-
-
-
+!["p1"](images/p1.png)
+!["p2"](images/p2.png)
+!["p3"](images/p3.png)
+!["p4"](images/p4.png)
+!["p5"](images/p5.png)
+!["p6"](images/p6.png)
+!["p7"](images/p7.png)
+!["p8"](images/p8.png)
+!["p9"](images/p9.png)
+!["p10"](images/p10.png)
+!["p11"](images/p11.png)
+!["p12"](images/p12.png)
+!["p13"](images/p13.png)
