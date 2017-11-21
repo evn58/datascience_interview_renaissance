@@ -149,6 +149,8 @@ ggplot() + geom_text(data = full_df, aes(label = cluster, x = PC1, y = PC2,
  theme(legend.position = "none") + ggtitle("PCA Clusters")
 ```
 
+!["clust"](images/clust.png)
+
 ## Построение выводов 
 
 ```{r}
@@ -163,7 +165,7 @@ featurePlot(dat$raw_clusters[, -which(names(dat$raw_clusters) == 'cluster')], da
 clusters <- dat$raw_clusters$cluster
 ```
 
-!["clust"](images/clust.png)
+!["clust"](images/features.png)
 
 ## Выводы:
 * POLICY_PRICE_CHANGE : Для кластера 1 страховая премия которую страхователь обязан выплатит стаховщику выше чем для других кластеров. Предпочителен для страхования
@@ -235,8 +237,6 @@ dat$dat_test <- cbind(dat$raw, clusters)
 
 dat$dat_test <- dat$dat_test %>% filter(clusters == 1)
 ```
-
-!["clust"](images/features.png)
 
 ## Идентификация идеального клиента
 
