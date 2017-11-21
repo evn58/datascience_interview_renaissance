@@ -1,5 +1,5 @@
 ---
-title: "R Notebook"
+title: "Проанализировать клиентов в выборке, провести кластеризацию, сделать описание сегментов"
 output: html_notebook
 ---
 
@@ -51,6 +51,44 @@ dat <- list(
       col_double() # POLICY_PRICE_CHANGE
     )
   ),
+  raw_f = read_delim(
+    "data.txt", 
+    delim = ";", 
+    col_types = list(
+      col_factor(levels = NULL), # DATA_TYPE
+      col_integer(), # POLICY_ID
+      col_factor(levels = NULL), # POLICY_BEGIN_MONTH
+      col_factor(levels = NULL), # POLICY_END_MONTH
+      col_factor(levels = c(0,1)), # POLICY_IS_RENEWED
+      #col_number(), # POLICY_IS_RENEWED
+      col_factor(levels = NULL), # POLICY_SALES_CHANNEL
+      col_factor(levels = NULL), # POLICY_SALES_CHANNEL_GROUP
+      col_factor(levels = NULL), # POLICY_BRANCH
+      col_integer(),# POLICY_MIN_AGE
+      col_integer(), #POLICY_MIN_DRIVING_EXPERIENCE need preprocess
+      col_factor(levels = NULL), # VEHICLE_MAKE
+      col_factor(levels = NULL), # VEHICLE_MODEL
+      col_number(), # VEHICLE_ENGINE_POWER
+      col_factor(levels = NULL), #VEHICLE_IN_CREDIT
+      col_integer(), # VEHICLE_SUM_INSURED
+      col_character(), #POLICY_INTERMEDIARY Maybe not needed
+      col_factor(levels = NULL), # INSURER_GENDER
+      col_factor(levels = NULL), # POLICY_CLM_N
+      col_factor(levels = NULL), # POLICY_CLM_GLT_N
+      col_factor(levels = NULL), # POLICY_PRV_CLM_N
+      col_factor(levels = NULL), # POLICY_PRV_CLM_GLT_N
+      col_factor(levels = NULL), # CLIENT_HAS_DAGO
+      col_factor(levels = NULL), # CLIENT_HAS_OSAGO
+      col_integer(), # POLICY_COURT_SIGN
+      col_double(), #CLAIM_AVG_ACC_ST_PRD
+      col_integer(), # POLICY_HAS_COMPLAINTS
+      col_integer(), # POLICY_YEARS_RENEWED_N
+      col_integer(), # POLICY_DEDUCT_VALUE
+      col_factor(levels = NULL), # CLIENT_REGISTRATION_REGION
+      col_double() # POLICY_PRICE_CHANGE
+    )
+  ),
+  dat_test = NA,
   raw_clusters = NA
 )
 
@@ -75,6 +113,12 @@ dat$raw$POLICY_MIN_DRIVING_EXPERIENCE <- ifelse(
   year(Sys.Date()) - dat$raw$POLICY_MIN_DRIVING_EXPERIENCE, dat$raw$POLICY_MIN_DRIVING_EXPERIENCE
 )
 
+# Clear POLICY_MIN_DRIVING_EXPERIENCE
+dat$raw_f$POLICY_MIN_DRIVING_EXPERIENCE <- ifelse(
+  dat$raw_f$POLICY_MIN_DRIVING_EXPERIENCE > 1000, 
+  year(Sys.Date()) - dat$raw_f$POLICY_MIN_DRIVING_EXPERIENCE, dat$raw_f$POLICY_MIN_DRIVING_EXPERIENCE
+)
+
 dat$raw <- dat$raw %>% dplyr::select(-POLICY_ID, -POLICY_IS_RENEWED)
 
 # Missing value impute 
@@ -84,6 +128,9 @@ imputDate <- c("VEHICLE_ENGINE_POWER","POLICY_YEARS_RENEWED_N",
 
 pr_model_median <- preProcess(dat$raw[,imputDate], method = "medianImpute" )
 dat$raw[,imputDate] <- predict(pr_model_median, dat$raw[,imputDate])
+
+pr_model_median <- preProcess(dat$raw_f[,imputDate], method = "medianImpute" )
+dat$raw_f[,imputDate] <- predict(pr_model_median, dat$raw_f[,imputDate])
 
 pr_model_pca <- preProcess(dat$raw, method = c("center","scale","pca"), pcaComp = 2)
 full_df <- predict(pr_model_pca, dat$raw %>% select(-DATA_TYPE))
@@ -106,7 +153,6 @@ fviz_nbclust(df_sub, kmeans, method = "wss") +
 geom_vline(xintercept = 4, linetype = 2)
 ```
 
-!["clust1"](images/clusters1.png)
 
 ### Поиск оптимального колличества кластеров метод GAP-статистики
 
@@ -119,8 +165,6 @@ print(gap_stat, method = "firstmax")
 fviz_gap_stat(gap_stat)
 ```
 
-!["clust2"](images/clusters2.png)
-
 ### Иерархическая кластеризация
 
 ```{r, message=FALSE, warning=FALSE, echo=TRUE, collapse=TRUE, results='hide'}
@@ -129,8 +173,6 @@ grp <- cutree(res.hc, k = 4) # Разрезание дерева на 4 груп
 plot(res.hc, cex = 0.7)
 rect.hclust(res.hc, k = 4, border = 2:5)
 ```
-
-!["clust3"](images/clusters3.png)
 
 В результате, по предыдущим методам можно сделать вывод что в данных 3-4 кластера, 2 из 3 анализа показывают что три кластера наиболее релевантное значение, изобразим эти кластеры на плоскости
 
@@ -150,13 +192,14 @@ ggplot() + geom_text(data = full_df, aes(label = cluster, x = PC1, y = PC2,
  theme(legend.position = "none") + ggtitle("PCA Clusters")
 ```
 
-!["clust"](images/pca_clust.png)
-
 
 ```{r, message=FALSE, warning=FALSE, echo=TRUE, collapse=TRUE, results='hide'}
 dat$raw_clusters <- cbind(dat$raw, clus$cluster)
 names(dat$raw_clusters)[ncol(dat$raw_clusters)] <- "cluster"
 clusters <- dat$raw_clusters$cluster
+
+dat$raw_f <- cbind(dat$raw_f, clus$cluster)
+names(dat$raw_f)[ncol(dat$raw_f)] <- "cluster"
 ```
 
 ## Выводы:
@@ -166,13 +209,116 @@ dat$raw_clusters %>%
   ggplot(aes(x = factor(POLICY_CLM_N), fill = factor(cluster))) +  
   geom_bar(astat = "identity",position = "dodge", alpha = 0.6) + 
   xlab("POLICY_CLM_N") +
-  ggtitle("Losses by cluster")
+  ggtitle("Убытки")
+
+dat$raw_clusters %>% 
+  ggplot(aes(x = factor(POLICY_CLM_GLT_N), fill = factor(cluster))) +  
+  geom_bar(astat = "identity",position = "dodge", alpha = 0.6) + 
+  xlab("POLICY_CLM_GLT_N") +
+  ggtitle("Убытки где виноват страхователь")
+
+dat$raw_clusters %>% 
+  ggplot(aes(x = INSURER_GENDER, fill = factor(cluster))) +  
+  geom_bar(astat = "identity",position = "dodge", alpha = 0.6) +
+  #geom_density(alpha = 0.25) + xlim(c(0, 50000))
+  xlab("INSURER_GENDER") +
+  ggtitle("Пол страхователя")
 
 ```
 
-!["clm"](images/clm_n.png)
 
-Как видно из графика страхователь из кластера 1 убыточен для компании, попробуем прогнозировать убытки от полиса для страхователя из кластера 1
+## Самые поплярные автомобили для кластера 1 (Кластер который самый убыточный для страховщика). И регион
+
+```{r}
+cl <- 1
+dat$raw_f %>% filter(cluster == cl) %>% select(VEHICLE_MAKE, VEHICLE_MODEL) %>%
+  count(VEHICLE_MAKE, VEHICLE_MODEL) %>% arrange(desc(n))
+
+dat$raw_f %>% filter(cluster == cl) %>% select(CLIENT_REGISTRATION_REGION) %>%
+  count(CLIENT_REGISTRATION_REGION) %>% arrange(desc(n))
+
+dat$raw_f %>% filter(cluster == cl) %>% group_by(INSURER_GENDER) %>% 
+  count(POLICY_CLM_N) %>% arrange(desc(n))
+
+dat$raw_f %>% filter(cluster == cl) %>% group_by(INSURER_GENDER) %>% 
+  count(VEHICLE_IN_CREDIT) %>% arrange(desc(n))
+
+dat$raw_f %>% filter(cluster == cl) %>% group_by(INSURER_GENDER) %>% 
+  summarise(age = median(POLICY_MIN_AGE))
+
+dat$raw_f %>% filter(cluster == cl) %>% group_by(INSURER_GENDER) %>% 
+  count(POLICY_CLM_GLT_N) %>% arrange(desc(n))
+
+dat$raw_f %>% filter(cluster == cl) %>% group_by(VEHICLE_MAKE) %>% 
+  count(POLICY_CLM_GLT_N) %>% arrange(desc(n))
+
+dat$raw_f %>% filter(cluster == cl) %>% group_by(INSURER_GENDER) %>% 
+  count(POLICY_CLM_GLT_N) %>% summarise(median = median(VEHICLE_ENGINE_POWER))
+
+```
+
+
+## Информация по кластеру 2 
+
+```{r}
+cl <- 2
+dat$raw_f %>% filter(cluster == cl) %>% select(VEHICLE_MAKE, VEHICLE_MODEL) %>%
+  count(VEHICLE_MAKE, VEHICLE_MODEL) %>% arrange(desc(n))
+
+dat$raw_f %>% filter(cluster == cl) %>% select(CLIENT_REGISTRATION_REGION) %>%
+  count(CLIENT_REGISTRATION_REGION) %>% arrange(desc(n))
+
+dat$raw_f %>% filter(cluster == cl) %>% group_by(INSURER_GENDER) %>% 
+  count(POLICY_CLM_N) %>% arrange(desc(n))
+
+dat$raw_f %>% filter(cluster == cl) %>% group_by(INSURER_GENDER) %>% 
+  count(VEHICLE_IN_CREDIT) %>% arrange(desc(n))
+
+dat$raw_f %>% filter(cluster == cl) %>% group_by(INSURER_GENDER) %>% 
+  summarise(age = median(POLICY_MIN_AGE))
+
+dat$raw_f %>% filter(cluster == cl) %>% group_by(INSURER_GENDER) %>% 
+  count(POLICY_CLM_GLT_N) %>% arrange(desc(n))
+
+dat$raw_f %>% filter(cluster == cl) %>% group_by(VEHICLE_MAKE) %>% 
+  count(POLICY_CLM_GLT_N) %>% arrange(desc(n))
+```
+
+## Информация по кластеру 3
+
+```{r}
+cl <- 3
+dat$raw_f %>% filter(cluster == cl) %>% select(VEHICLE_MAKE, VEHICLE_MODEL) %>%
+  count(VEHICLE_MAKE, VEHICLE_MODEL) %>% arrange(desc(n))
+
+dat$raw_f %>% filter(cluster == cl) %>% select(CLIENT_REGISTRATION_REGION) %>%
+  count(CLIENT_REGISTRATION_REGION) %>% arrange(desc(n))
+
+dat$raw_f %>% filter(cluster == cl) %>% group_by(INSURER_GENDER) %>% 
+  count(POLICY_CLM_N) %>% arrange(desc(n))
+
+dat$raw_f %>% filter(cluster == cl) %>% group_by(INSURER_GENDER) %>% 
+  count(VEHICLE_IN_CREDIT) %>% arrange(desc(n))
+
+dat$raw_f %>% filter(cluster == cl) %>% group_by(INSURER_GENDER) %>% 
+  summarise(age = median(POLICY_MIN_AGE))
+
+dat$raw_f %>% filter(cluster == cl) %>% group_by(INSURER_GENDER) %>% 
+  count(POLICY_CLM_GLT_N) %>% arrange(desc(n))
+
+dat$raw_f %>% filter(cluster == cl) %>% group_by(VEHICLE_MAKE) %>% 
+  count(POLICY_CLM_GLT_N) %>% arrange(desc(n))
+```
+
+## Выводы:
+
+Всего было выявлено 3 кластера:
+
+* 1 Кластер, наиболее аварийные случаи, с более премиальными авто, практически всегда являются причиной ДТП, аварийность этой группы не зависит от пола. В основном место регистрации ТС Москва, самый низкий медианный возраст среди кластеров, 39 лет для мужчины и 40 лет для женщины.
+
+* Как видно из графика страхователь из кластера 1 убыточен для компании, ниже попробуем прогнозировать убытки от полиса для страхователя из кластера 1
+* Плохих водителей среди мужчин в среднем ниже чем плохих водителей среди женщин
+* 
 
 ## Прогнозирование убытков страхователя на основе информации о кластеризации и той информации которая у нас есть до заключения договора
 
@@ -181,7 +327,7 @@ dat$raw_clusters %>%
 * Посмотрим точность классификации убытков с признаком кластера на тестовой выборке
 
 ```{r, message=FALSE, warning=FALSE, echo=TRUE, collapse=TRUE, results='hide'}
-tmp <- dat$raw_clusters %>% select(DATA_TYPE, POLICY_CLM_N, POLICY_BEGIN_MONTH, POLICY_BRANCH, 
+tmp <- dat$raw_clusters %>% dplyr::select(DATA_TYPE, POLICY_CLM_N, POLICY_BEGIN_MONTH, POLICY_BRANCH, 
                             POLICY_SALES_CHANNEL, POLICY_SALES_CHANNEL_GROUP,
                             POLICY_MIN_AGE, POLICY_MIN_DRIVING_EXPERIENCE, VEHICLE_MAKE, 
                             VEHICLE_MODEL, VEHICLE_ENGINE_POWER, VEHICLE_IN_CREDIT,
@@ -232,7 +378,7 @@ sum(badPrediction)*100/nrow(scoreMultiDF_Cluster)
 ```
 
 ### Ошибка предсказания убытков для алгоритма без признака кластера  *29%*
-### Ошибка предсказания убытков для алгоритма без признака кластера  *23%*
+### Ошибка предсказания убытков для алгоритма с признаком кластера  *23%*
 
 Таким образом нам удалось улучшить прогноз убытков на 5% используя сегментацию страхователей
 
