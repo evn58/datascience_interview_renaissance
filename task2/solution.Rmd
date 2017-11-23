@@ -1,8 +1,233 @@
 ---
-title: "R Notebook"
-output: html_notebook
+title: "Task 2 Fraud detection"
+output:
+  html_document:
+    df_print: paged
 ---
 
-```{r}
-plot(cars)
+```{r, message=FALSE, warning=FALSE, echo=TRUE, collapse=TRUE, results='hide'}
+library(tidyverse)
+library(caret)
+library(caretEnsemble)
+library(xgboost)
+library(readr)
+library(MicrosoftML)
+library(lubridate)
+
+dat <- list(
+  #col_double(), col_character()
+  raw = read_delim(
+    "data.txt", 
+    delim = ";", 
+    col_types = list(
+      col_factor(levels = NULL), # DATA_TYPE
+      col_integer(), # POLICY_ID
+      col_integer(),  # POLICY_BEGIN_MONTH
+      col_integer(),  # POLICY_END_MONTH
+      #col_factor(levels = c(0,1)), # POLICY_IS_RENEWED
+      col_number(), # POLICY_IS_RENEWED
+      col_integer(),  # POLICY_SALES_CHANNEL
+      col_integer(),  # POLICY_SALES_CHANNEL_GROUP
+      col_character(), # POLICY_BRANCH -- NEED PREPROC
+      col_integer(),# POLICY_MIN_AGE
+      col_integer(), #POLICY_MIN_DRIVING_EXPERIENCE need preprocess
+      col_character(), # VEHICLE_MAKE
+      col_character(), # VEHICLE_MODEL
+      col_integer(), # VEHICLE_ENGINE_POWER
+      col_integer(), #VEHICLE_IN_CREDIT
+      col_integer(), # VEHICLE_SUM_INSURED
+      col_character(), #POLICY_INTERMEDIARY Maybe not needed
+      col_character(), # INSURER_GENDER -- NEED PREPROC
+      col_character(), # POLICY_CLM_N     -- NEED PREPROC
+      col_character(), # POLICY_CLM_GLT_N -- NEED PREPROC
+      col_character(), # POLICY_PRV_CLM_N -- NEED PREPROC
+      col_character(), # POLICY_PRV_CLM_GLT_N -- NEED PREPROC
+      col_integer(), # CLIENT_HAS_DAGO
+      col_integer(), # CLIENT_HAS_OSAGO
+      col_integer(), # POLICY_COURT_SIGN
+      col_double(), #CLAIM_AVG_ACC_ST_PRD
+      col_integer(), # POLICY_HAS_COMPLAINTS
+      col_integer(), # POLICY_YEARS_RENEWED_N
+      col_integer(), # POLICY_DEDUCT_VALUE
+      col_character(), # CLIENT_REGISTRATION_REGION -- NEED PREPROC
+      col_double() # POLICY_PRICE_CHANGE
+    )
+  ),
+  raw_f = read_delim(
+    "data.txt", 
+    delim = ";", 
+    col_types = list(
+      col_factor(levels = NULL), # DATA_TYPE
+      col_integer(), # POLICY_ID
+      col_factor(levels = NULL), # POLICY_BEGIN_MONTH
+      col_factor(levels = NULL), # POLICY_END_MONTH
+      col_factor(levels = c(0,1)), # POLICY_IS_RENEWED
+      #col_number(), # POLICY_IS_RENEWED
+      col_factor(levels = NULL), # POLICY_SALES_CHANNEL
+      col_factor(levels = NULL), # POLICY_SALES_CHANNEL_GROUP
+      col_factor(levels = NULL), # POLICY_BRANCH
+      col_integer(),# POLICY_MIN_AGE
+      col_integer(), #POLICY_MIN_DRIVING_EXPERIENCE need preprocess
+      col_factor(levels = NULL), # VEHICLE_MAKE
+      col_factor(levels = NULL), # VEHICLE_MODEL
+      col_number(), # VEHICLE_ENGINE_POWER
+      col_factor(levels = NULL), #VEHICLE_IN_CREDIT
+      col_integer(), # VEHICLE_SUM_INSURED
+      col_character(), #POLICY_INTERMEDIARY Maybe not needed
+      col_factor(levels = NULL), # INSURER_GENDER
+      col_factor(levels = NULL), # POLICY_CLM_N
+      col_factor(levels = NULL), # POLICY_CLM_GLT_N
+      col_factor(levels = NULL), # POLICY_PRV_CLM_N
+      col_factor(levels = NULL), # POLICY_PRV_CLM_GLT_N
+      col_factor(levels = NULL), # CLIENT_HAS_DAGO
+      col_factor(levels = NULL), # CLIENT_HAS_OSAGO
+      col_integer(), # POLICY_COURT_SIGN
+      col_double(), #CLAIM_AVG_ACC_ST_PRD
+      col_integer(), # POLICY_HAS_COMPLAINTS
+      col_integer(), # POLICY_YEARS_RENEWED_N
+      col_integer(), # POLICY_DEDUCT_VALUE
+      col_factor(levels = NULL), # CLIENT_REGISTRATION_REGION
+      col_double() # POLICY_PRICE_CHANGE
+    )
+  ),  
+  clients = readxl::read_excel("data_clients.xlsx", 
+                               col_names = c("POLICY_ID", "USER1", "USER2"), 
+                               col_types = c("numeric", "text", "text"), skip = 1
+                               ),
+  train_pca = NA
+)
+
+# Clear POLICY_MIN_DRIVING_EXPERIENCE
+dat$raw$POLICY_MIN_DRIVING_EXPERIENCE <- ifelse(
+  dat$raw$POLICY_MIN_DRIVING_EXPERIENCE > 1000, 
+  year(Sys.Date()) - dat$raw$POLICY_MIN_DRIVING_EXPERIENCE, dat$raw$POLICY_MIN_DRIVING_EXPERIENCE
+)
+
+# factor to numeric
+dat$raw$CLIENT_REGISTRATION_REGION <- as.numeric(as.factor(dat$raw$CLIENT_REGISTRATION_REGION))
+dat$raw$VEHICLE_MAKE <- as.numeric(as.factor(dat$raw$VEHICLE_MAKE))
+dat$raw$VEHICLE_MODEL <- as.numeric(as.factor(dat$raw$VEHICLE_MODEL))
+dat$raw$POLICY_INTERMEDIARY <- as.numeric(as.factor(dat$raw$POLICY_INTERMEDIARY))
+dat$raw$POLICY_CLM_N <- as.numeric(as.factor(dat$raw$POLICY_CLM_N))
+dat$raw$POLICY_CLM_GLT_N <- as.numeric(as.factor(dat$raw$POLICY_CLM_GLT_N))
+dat$raw$POLICY_PRV_CLM_N <- as.numeric(as.factor(dat$raw$POLICY_PRV_CLM_N))
+dat$raw$POLICY_BRANCH <- as.numeric(as.factor(dat$raw$POLICY_BRANCH))
+dat$raw$INSURER_GENDER <- as.numeric(as.factor(dat$raw$INSURER_GENDER))
+dat$raw$POLICY_PRV_CLM_GLT_N <- as.numeric(as.factor(dat$raw$POLICY_PRV_CLM_GLT_N))
+
+# Missing value impute 
+imputDate <- c("VEHICLE_ENGINE_POWER","POLICY_YEARS_RENEWED_N", 
+               "VEHICLE_SUM_INSURED", "POLICY_DEDUCT_VALUE")
+
+pr_model_median <- preProcess(dat$raw[,imputDate], method = "medianImpute" )
+dat$raw[,imputDate] <- predict(pr_model_median, dat$raw[,imputDate])
+
+pr_model <- preProcess(dat$raw %>% select(-POLICY_ID), method = c("center", "scale", "pca"))
+
+dat$train_pca <- predict(pr_model, dat$raw)
+
+#names(dat$train_pca)[ncol(dat$train_pca)] <- "POLICY_ID"
+#dat$dat_train <- dat$train_pca %>% r(dat$clients, by = "POLICY_ID")
+
 ```
+
+```{r}
+tmp <- dat$train_pca %>% dplyr::select(-POLICY_ID)
+
+fmla <- paste0("~", paste(names(tmp), collapse = "+" ))
+
+rxtrain <- rxImport(inData = tmp, outFile = "rxtrain.xdf", overwrite = TRUE)
+
+model <- rxOneClassSvm(data = rxtrain, formula = fmla)
+
+# predict
+result <- rxPredict(
+  model,
+  data = tmp,
+  extraVarsToWrite = c("PC1", "PC2")
+)
+
+result <- result %>% mutate(POLICY_ID = dat$train_pca$POLICY_ID)
+  
+```
+
+```{r}
+boundary <- quantile(result$Score, .95)
+
+frauds <- dat$raw %>% right_join(dat$clients, by = "POLICY_ID") %>% 
+  left_join(result, by = "POLICY_ID")  %>% filter(Score > boundary) %>%
+  select(-PC1, -PC2)
+  
+```
+
+```{r}
+#featurePlot(frauds %>% select(-USER1, -USER2, -DATA_TYPE, -POLICY_ID), frauds$Score)
+
+featurePlot(frauds %>% select(
+  CLIENT_REGISTRATION_REGION, 
+  CLAIM_AVG_ACC_ST_PRD, 
+  POLICY_COURT_SIGN,
+  VEHICLE_IN_CREDIT, 
+  VEHICLE_ENGINE_POWER, 
+  POLICY_SALES_CHANNEL_GROUP, 
+  POLICY_SALES_CHANNEL, 
+  POLICY_BRANCH,INSURER_GENDER
+), frauds$Score)
+```
+
+## Смерджим с факторыми данными что бы было удобнее делать выводы:
+
+```{r}
+frauds_f <- dat$raw_f %>% right_join(dat$clients, by = "POLICY_ID") %>% 
+  left_join(result, by = "POLICY_ID")  %>% filter(Score > boundary) %>%
+  select(-PC1, -PC2)
+```
+
+## Выводы: 
+Потенциальные мошенники это следующие полиса
+```{r}
+frauds_f %>% select(POLICY_ID, USER1, USER2)
+```
+
+#### Выбросы в основном это мужчины
+
+```{r}
+ggplot(frauds_f, aes(x = INSURER_GENDER, y = Score)) + geom_point()
+```
+
+#### Видно что полисы с выбросаами в основном POLICY_SALES_CHANNEL были через каналы продаж с номерами (50, 52, 53, 54)
+
+```{r}
+ggplot(frauds_f, aes(x = POLICY_SALES_CHANNEL, y = Score)) + geom_point()
+```
+
+#### Полисы с выбросаами в основном автомобили средней ценовой категории
+
+```{r}
+ggplot(frauds_f, aes(x = VEHICLE_MAKE, y = Score)) + geom_point() +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1))
+```
+
+### Выбросы в основном среди автомобилей с мощностью между 100 - 150 hp
+
+```{r}
+ggplot(frauds_f, aes(x = VEHICLE_ENGINE_POWER, y = Score, size = VEHICLE_SUM_INSURED)) + geom_point()
+```
+
+### Выбросы в основном среди автомобилей с регистрацией в Санкт-Петербурге
+
+```{r}
+ggplot(frauds_f, aes(x = CLIENT_REGISTRATION_REGION, y = Score)) + geom_point()
+```
+
+### Потенциальные мошенники почти наверняка открывают полис на 1 месяц
+
+```{r}
+ggplot(frauds_f, aes(x = POLICY_BEGIN_MONTH, y = POLICY_END_MONTH)) + geom_point()
+```
+### Автомобиль потенциального мошенника почти наверняка не в кредите
+
+```{r}
+ggplot(frauds_f, aes(x = VEHICLE_IN_CREDIT, y = Score)) + geom_point()
+```
+
